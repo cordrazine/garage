@@ -1,6 +1,9 @@
 #include <Homie.h>
 #include <DHT.h>
 
+#define FW_NAME "garage"
+#define FW_VERSION "0.0.1"
+
 //Pin allocation definition
 const int PIN_TRIGGER = 16;    // D0 on NodeMCU, Trigger push button
 const int PIN_RELAY = 5;    // D1 on NodeMCU, output relay for controlling the garage door
@@ -91,13 +94,13 @@ void relayBuzzHandler (void){
       default:
         RelayState = RELAY_IDLE;
       break;
+    }
 }
 
-void state_machine_garagedoor(void)
+void state_machine_garagedoor(void) {
 // This is the main Finite-State-Machine. This is a one-hot FSM.
 // Based on: Doorsensors (SDxx), Trigger, MQTT command (CMD_xxx) the stat is set.
 // before transition, a Relay pulse is generated
-{
   switch(state) {
     case ST_CLOSED:
       // default State. No detection for SensorDoorClose since we suppose to be here alreary
@@ -147,113 +150,58 @@ void state_machine_garagedoor(void)
         Homie.getLogger() << "ST_OPEN: Valid Trigger detected. DoorState --> CLOSING" << endl;
         state = ST_CLOSING;
       }
-      if(!lastSDOpenValue){        // In case after reset, faulty situation etc
+      if(!lastSDCloseValue){        // In case after reset, faulty situation etc
         statusNode.setProperty("status").send("CLOSED");
         Homie.getLogger() << "ST_OPEN: Detected CloseSensor active. DoorState --> CLOSED" << endl;
         state = ST_CLOSED;;
       }
     break;
 
-
-
-
-
-
-
-
-
-
     case ST_CLOSING:
-      if((!lastTriggerValue && RelayPulseActive == false) || lastCommandValue == CMD_STOP){
-        // Valid Trigger or command received
+      if (RelayPulseActive == false && (!lastTriggerValue  || lastCommandValue == CMD_STOP)) {
         lastCommandValue = CMD_IDLE;    // reset command
-        // Enable trigger pulse
-        startRelayPulse = millis();
-        digitalWrite(PIN_RELAY, HIGH);
-        startTimeOut = millis();
-        RelayPulseActive = true;
-      }
-      if (RelayPulseActive == true) {
-        // disable the trigger pulse when time has passed
-        if (millis() - startRelayPulse >= TIME_PULSE) {
-            // Trigger pulse completed
-            digitalWrite(PIN_RELAY, LOW);
-            RelayPulseActive = false;
-            Homie.getLogger() << "ST_CLOSING: Valid Trigger / command received. DoorState --> CLOSING_STOPPED" << endl;
-            lastCommandValue = CMD_IDLE;    // reset command
-            // change the state
-            state = ST_CLOSING_STOPPED;
-            statusNode.setProperty("status").send("CLOSING_STOPPED");
-        }
+        RelayStartCommand = true;       // Start the buzzer / relay sequence
+        startTimeOut = millis();        // record time for time-out
+        statusNode.setProperty("status").send("CLOSING_STOPPED");
+        Homie.getLogger() << "ST_CLOSING: Valid Trigger / command received. DoorState --> CLOSING_STOPPED" << endl;
+        state = ST_CLOSING_STOPPED;
       }
       if (millis() - startTimeOut >= TIME_OUT) {
-        // Timed out. Enable time-out flag and goto CLOSING_STOPPED
-        Homie.getLogger() << "ST_CLOSING: Time-out detected. Doorstate --> CLOSING_STOPPED" << endl;
-        TimeOutActivated = true;
-        lastCommandValue = CMD_IDLE;    // reset command
         statusNode.setProperty("time-out").send("true");
-        state = ST_CLOSING_STOPPED;
         statusNode.setProperty("status").send("CLOSING_STOPPED");
+        Homie.getLogger() << "ST_CLOSING: Time-out detected. Doorstate --> CLOSING_STOPPED" << endl;
+        state = ST_CLOSING_STOPPED;
       }
       if(!lastSDCloseValue){
         Homie.getLogger() << "ST_CLOSING: SDCloseValue detected. DoorState --> CLOSED" << endl;
-        lastCommandValue = CMD_IDLE;    // reset command
-        state = ST_CLOSED;
         statusNode.setProperty("status").send("CLOSED");
+        state = ST_CLOSED;
       }
     break;
 
     case ST_OPENING_STOPPED:
-      if((!lastTriggerValue && RelayPulseActive == false) || lastCommandValue > CMD_IDLE){
-        // Valid Trigger or command received
+      if (RelayPulseActive == false && (!lastTriggerValue  || lastCommandValue > CMD_IDLE)) {
         lastCommandValue = CMD_IDLE;    // reset command
-        // Enable trigger pulse
+        RelayStartCommand = true;       // Start the buzzer / relay sequence
         TimeOutActivated = false;
         statusNode.setProperty("time-out").send("false");
-        startRelayPulse = millis();
-        digitalWrite(PIN_RELAY, HIGH);
-        startTimeOut = millis();
-        RelayPulseActive = true;
-      }
-      if (RelayPulseActive == true) {
-        // disable the trigger pulse when time has passed
-        if (millis() - startRelayPulse >= TIME_PULSE) {
-            // Trigger pulse completed
-            digitalWrite(PIN_RELAY, LOW);
-            RelayPulseActive = false;
-            Homie.getLogger() << "ST_OPENING_STOPPPED: Trigger received. DoorState --> CLOSING" << endl;
-            lastCommandValue = CMD_IDLE;    // reset command
-            // Change the state
-            state = ST_CLOSING;
-            statusNode.setProperty("status").send("CLOSING");
-        }
+        startTimeOut = millis();        // record time for time-out
+        statusNode.setProperty("status").send("CLOSING");
+        Homie.getLogger() << "ST_OPENING_STOPPPED: Trigger received. DoorState --> CLOSING" << endl;
+        state = ST_CLOSING;
       }
     break;
 
     case ST_CLOSING_STOPPED:
-      if((!lastTriggerValue && RelayPulseActive == false) || lastCommandValue > CMD_IDLE){
-        // Valid Trigger or command received
+      if (RelayPulseActive == false && (!lastTriggerValue  || lastCommandValue > CMD_IDLE)) {
         lastCommandValue = CMD_IDLE;    // reset command
-        // Enable trigger pulse
+        RelayStartCommand = true;       // Start the buzzer / relay sequence
         TimeOutActivated = false;
         statusNode.setProperty("time-out").send("false");
-        startRelayPulse = millis();
-        digitalWrite(PIN_RELAY, HIGH);
-        startTimeOut = millis();
-        RelayPulseActive = true;
-      }
-      if (RelayPulseActive == true) {
-        // disable the trigger pulse when time has passed
-        if (millis() - startRelayPulse >= TIME_PULSE) {
-          // Trigger pulse completed
-          digitalWrite(PIN_RELAY, LOW);
-          RelayPulseActive = false;
-          Homie.getLogger() << "ST_CLOSING_STOPPPED: Trigger received. DoorState --> OPENING" << endl;
-          lastCommandValue = CMD_IDLE;    // reset command
-          // Change the state
-          state = ST_OPENING;
-          statusNode.setProperty("status").send("OPENING");
-        }
+        startTimeOut = millis();        // record time for time-out
+        statusNode.setProperty("status").send("OPENING");
+        Homie.getLogger() << "ST_CLOSING_STOPPPED: Trigger received. DoorState --> OPENING" << endl;
+        state = ST_OPENING;
       }
     break;
 
@@ -268,29 +216,25 @@ void state_machine_garagedoor(void)
 void LoopHandler() {
   // handles the Door Sensors and the Trigger button, and trigger pulse
   int triggerValue = debouncerTrigger.read();
-
   if (triggerValue != lastTriggerValue) {
     // The trigger pin has an internal pull up and is pulled to GND when the button is pressed. So the trigger is an inverted trigger
      Homie.getLogger() << "Trigger is now " << (triggerValue ? "false" : "true") << endl;
-
      triggerNode.setProperty("active").send(triggerValue ? "false" : "true");
      lastTriggerValue = triggerValue;
   }
-  int SDOpenValue = debouncerSDOpen.read();
 
+  int SDOpenValue = debouncerSDOpen.read();
   if (SDOpenValue != lastSDOpenValue) {
     // The trigger pin has an internal pull up and is pulled to GND when the button is pressed. So the trigger is an inverted trigger
      Homie.getLogger() << "SensorDoorOpen (handler) is now " << (SDOpenValue ? "false" : "true") << endl;
-
      SDOpenNode.setProperty("active").send(SDOpenValue ? "false" : "true");
      lastSDOpenValue = SDOpenValue;
   }
-  int SDCloseValue = debouncerSDClose.read();
 
+  int SDCloseValue = debouncerSDClose.read();
   if (SDCloseValue != lastSDCloseValue) {
     // The trigger pin has an internal pull up and is pulled to GND when the button is pressed. So the trigger is an inverted trigger
     Homie.getLogger() << "SensorDoorClose (handler) is now " << (SDCloseValue ? "false" : "true") << endl;
-
     SDCloseNode.setProperty("active").send(SDCloseValue ? "false" : "true");
     lastSDCloseValue = SDCloseValue;
   }
@@ -377,9 +321,11 @@ void setup() {
   pinMode(PIN_RELAY, OUTPUT);
   digitalWrite(PIN_RELAY, LOW);
 
-  Homie_setFirmware("garage", "0.0.1");
+  pinMode(PIN_BUZZ, OUTPUT);
+  digitalWrite(PIN_BUZZ, LOW);
+
+  Homie_setFirmware(FW_NAME, FW_VERSION);
   Homie.setLoopFunction(LoopHandler);
-  lightNode.advertise("on").settable(lightOnHandler);
   commandNode.advertise("command").settable(commandHandler);
   statusNode.advertise("status");
   statusNode.advertise("time-out");
@@ -397,4 +343,5 @@ void loop() {
   debouncerSDOpen.update();
   debouncerSDClose.update();
   state_machine_garagedoor();
+  relayBuzzHandler();
 }
